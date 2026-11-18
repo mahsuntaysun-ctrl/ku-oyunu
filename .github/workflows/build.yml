@@ -1,4 +1,4 @@
-name: Build APK
+name: Build AAB
 on: workflow_dispatch
 jobs:
   build:
@@ -12,11 +12,35 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - run: flutter create --platforms=android --project-name kus_oyunu tmp_app
+      - run: flutter create --platforms=android --org com.mahsuntaysun --project-name kus_oyunu tmp_app
       - run: cp main.dart tmp_app/lib/main.dart
-      - run: flutter build apk --release
+      - name: Imza ve ayarlar
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > tmp_app/android/app/upload-keystore.jks
+          sed -i 's/android:label="[^"]*"/android:label="Kuş Oyunu"/' tmp_app/android/app/src/main/AndroidManifest.xml
+          python3 - <<'EOF'
+          p = 'tmp_app/android/app/build.gradle.kts'
+          s = open(p).read()
+          sign = '''    signingConfigs {
+              create("release") {
+                  storeFile = file("upload-keystore.jks")
+                  storePassword = System.getenv("KEYSTORE_PASSWORD")
+                  keyAlias = "upload"
+                  keyPassword = System.getenv("KEYSTORE_PASSWORD")
+              }
+          }
+
+          '''
+          s = s.replace('    buildTypes {', sign + '    buildTypes {', 1)
+          s = s.replace('signingConfigs.getByName("debug")', 'signingConfigs.getByName("release")')
+          open(p, 'w').write(s)
+          EOF
+          grep -q 'getByName("release")' tmp_app/android/app/build.gradle.kts
+      - run: flutter build appbundle --release --build-number=${{ github.run_number }}
         working-directory: tmp_app
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
       - uses: actions/upload-artifact@v4
         with:
-          name: kus-oyunu-apk
-          path: tmp_app/build/app/outputs/flutter-apk/app-release.apk
+          name: kus-oyunu-aab
+          path: tmp_app/build/app/outputs/bundle/release/app-release.aab
